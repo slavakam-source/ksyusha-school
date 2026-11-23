@@ -68,8 +68,13 @@ app.post("/api/session",async(req,res)=>{
   });
   return res.status(201).json(result);
  }catch(e){
-  console.error("Voice session creation failed",e?.status||"unknown");
-  return res.status(502).json({error:"voice_unavailable"});
+  const status=Number(e?.status)||0;
+  const code=typeof e?.code==="string"?e.code:"unknown";
+  const type=typeof e?.type==="string"?e.type:"unknown";
+  // Never log the API key, request headers, user audio, or SDP.
+  console.error("Voice session failed",JSON.stringify({http_status:status,error_code:code,error_type:type}));
+  const category=status===401?"api_auth_failed":status===403?"api_permission_denied":status===429?"api_quota_or_rate_limit":status===400?"api_request_rejected":status===404?"api_model_or_endpoint_unavailable":status>=500?"api_provider_unavailable":"voice_unavailable";
+  return res.status(502).json({error:category,upstream_status:status||null});
  }
 });
 app.listen(PORT,"0.0.0.0",()=>console.log("Voice lesson server listening"));
