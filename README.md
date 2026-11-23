@@ -1,1 +1,1 @@
-# ksyusha-achool
+# ksyusha-school
