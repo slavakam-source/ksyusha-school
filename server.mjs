@@ -7,7 +7,14 @@ app.disable("x-powered-by");
 app.use(express.json({ limit: "90kb" }));
 const client = new OpenAI({ maxRetries: 0 });
 const PORT = Number(process.env.PORT || 3000);
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://slavakam-source.github.io";
+const PUBLIC_SITE_ORIGIN = "https://slavakam-source.github.io";
+function canonicalOrigin(value) {
+ try { return new URL(value.trim()).origin; } catch { return ""; }
+}
+const ALLOWED_ORIGINS = new Set([PUBLIC_SITE_ORIGIN, canonicalOrigin(process.env.ALLOWED_ORIGIN || "")].filter(Boolean));
+function originAllowed(req) {
+ return ALLOWED_ORIGINS.has(req.get("Origin") || "");
+}
 const LESSON_CODE = process.env.LESSON_ACCESS_CODE || "";
 const HISTORY = new Map();
 const WINDOW = 60 * 60 * 1000;
@@ -37,7 +44,7 @@ function checkRateLimit(ip){
  events.push(now);HISTORY.set(ip,events);return true;
 }
 app.use((req,res,next)=>{
- res.set("Access-Control-Allow-Origin",ALLOWED_ORIGIN);
+ if (originAllowed(req)) res.set("Access-Control-Allow-Origin",req.get("Origin"));
  res.set("Vary","Origin");
  res.set("Access-Control-Allow-Headers","Content-Type,X-Lesson-Code");
  res.set("Access-Control-Allow-Methods","POST,OPTIONS,GET");
@@ -45,9 +52,9 @@ app.use((req,res,next)=>{
  if(req.method==="OPTIONS")return res.status(204).end();
  next();
 });
-app.get("/health",(req,res)=>res.json({status:"ok",service:"ksyusha-school-voice"}));
+app.get("/health",(req,res)=>res.json({status:"ok",service:"ksyusha-school-voice",cors:originAllowed(req)?"allowed":"no-browser-origin"}));
 app.post("/api/session",async(req,res)=>{
- if(req.headers.origin!==ALLOWED_ORIGIN)return res.status(403).json({error:"origin_denied"});
+ if(!originAllowed(req))return res.status(403).json({error:"origin_denied"});
  if(!LESSON_CODE || !process.env.OPENAI_API_KEY)return res.status(503).json({error:"server_not_configured"});
  const code=req.header("X-Lesson-Code")||"";
  if(!constantTimeEqual(code,LESSON_CODE))return res.status(403).json({error:"invalid_code"});
