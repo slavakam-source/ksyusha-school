@@ -13,7 +13,7 @@ async function probe(){
 $('diagnose').textContent='Проверяю сервер Render…';
 const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),90000);
 try{
-const result=await fetch(url.replace(/\\/$/,'')+'/health',{method:'GET',cache:'no-store',signal:controller.signal});
+const result=await fetch(url.replace(/\/$/,'')+'/health',{method:'GET',cache:'no-store',signal:controller.signal});
 if(!result.ok)throw Error('HTTP '+result.status);
 const data=await result.json();
 $('diagnose').textContent=data.status==='ok'?'✅ Render отвечает. Можно пробовать голосовой урок.':'Сервер ответил неожиданным статусом';
