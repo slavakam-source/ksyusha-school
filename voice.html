@@ -1,0 +1,40 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ксюшина школа — голосовой урок</title><style>
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(135deg,#f6e8ff,#e2f7ff);color:#30254a;font:18px system-ui,-apple-system,sans-serif}main{max-width:650px;margin:auto;padding:18px}h1{font-size:25px;color:#6240a7}.card{background:white;padding:20px;border-radius:24px;margin:14px 0;box-shadow:0 7px 24px #4538721a}.teacher{background:#f2ecff;border-radius:17px;padding:16px;line-height:1.5}.buttons{display:flex;gap:10px;flex-wrap:wrap}button{border:0;background:#7554c9;color:white;border-radius:14px;padding:14px;font-size:17px;font-weight:700;min-height:48px}button.secondary{background:#ece4ff;color:#6144a7}button:disabled{opacity:.5}input{font-size:18px;padding:12px;border:2px solid #cbbdf0;border-radius:12px;width:100%}audio{width:100%;margin-top:12px}.muted{color:#726886;font-size:14px}.status{padding:12px;background:#f7f4ff;border-radius:12px;margin:10px 0}.notes{font-size:14px;line-height:1.5}#log{font-size:14px;max-height:180px;overflow:auto;white-space:pre-wrap}.hidden{display:none}</style></head><body><main><h1>🎓 Ксюшина школа</h1><p class="muted">Голосовая математика · только № 6 и № 7</p>
+<div class="card"><h2>👩‍🏫 Урок с Чатиком</h2><div class="teacher"><b>Задание № 6</b><p>На 4 одинаковых платья пошло 16 м ситца. Сколько таких платьев получится из 20 м? Из 40 м?</p><b>Задание № 7</b><p>Расшифруй слово по карточкам: 7 × 6 — Е, 9 + 7 — П, 91 − 78 — Б, 10 × 7 — А, 50 : 10 — О, 18 × 3 — Д. Порядок результатов: 16, 5, 13, 42, 54, 70.</p></div>
+<p class="muted">Начать урок может только взрослый. Чатик задаёт наводящие вопросы, не решает задания за ребёнка.</p><label for="pin">Код доступа родителя (не ключ OpenAI):</label><input id="pin" type="password" autocomplete="off" placeholder="Код родителя"><div class="buttons" style="margin-top:13px"><button id="start">🎙️ Начать голосовой урок</button><button id="end" class="secondary" disabled>Завершить</button></div><div id="status" class="status" role="status">Ожидание запуска взрослым</div><audio id="sound" autoplay playsinline controls></audio><p class="muted">На iPhone и iPad разрешите доступ к микрофону. При необходимости нажмите ▶ на аудиоплеере.</p><div id="log" aria-live="polite"></div></div>
+<div class="card notes">Режим рассчитан на совместное занятие ребёнка со взрослым. Для хранения записей или истории чата здесь ничего не предусмотрено. После 10 минут разговор автоматически завершится на устройстве. Ограничение темы задаётся сервером, но ИИ не может гарантировать абсолютное отсутствие посторонних ответов. <a href="./index.html">Обычный тренажёр</a></div></main>
+<script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id);let pc=null,dc=null,mic=null,timer=null,active=false;
+const backend=location.hostname.endsWith('github.io')?'':location.origin;
+const url=new URLSearchParams(location.search).get('server')||backend;
+function status(t){$('status').textContent=t}
+function clean(){if(timer)clearTimeout(timer);timer=null;try{dc?.close()}catch{}try{pc?.close()}catch{}mic?.getTracks().forEach(t=>t.stop());$('sound').srcObject=null;pc=dc=mic=null;active=false;$('start').disabled=false;$('end').disabled=true}
+async function end(){if(!active){clean();return}status('Завершаем разговор…');$('end').disabled=true;try{if(dc?.readyState==='open')dc.send(JSON.stringify({type:'session.close'}));}catch{}setTimeout(()=>{if(active){clean();status('Урок завершён')}},2500)}
+$('end').onclick=end;
+$('start').onclick=async()=>{
+if(active)return;
+if(!url||!/^https:\/\//.test(url)){status('Сначала нужен адрес защищённого сервера ИИ. Сейчас доступен обычный тренажёр без ИИ.');return}
+const code=$('pin').value.trim();if(!code){status('Попросите взрослого ввести код доступа');return}
+$('start').disabled=true;status('Подключаю микрофон…');
+try{
+mic=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+pc=new RTCPeerConnection();
+pc.ontrack=e=>{const a=$('sound');a.srcObject=e.streams[0];a.play().catch(()=>status('Нажмите ▶ на плеере, чтобы услышать Чатика'))};
+mic.getTracks().forEach(t=>pc.addTrack(t,mic));
+dc=pc.createDataChannel('oai-events');
+dc.onmessage=e=>{try{const v=JSON.parse(e.data);if(v.type==='session.started'||v.type==='session.created'){status('🟢 Чатик слушает тебя');active=true}
+if(v.type==='session.closed'){clean();status('Урок завершён')}if(v.type==='error')status('Ошибка голосового соединения')}
+catch{}};
+const offer=await pc.createOffer();await pc.setLocalDescription(offer);
+if(pc.iceGatheringState!=='complete')await new Promise((res,rej)=>{const timeout=setTimeout(()=>rej(Error('Не удалось подготовить соединение')),10000);const change=()=>{if(pc.iceGatheringState==='complete'){clearTimeout(timeout);pc.removeEventListener('icegatheringstatechange',change);res()}};pc.addEventListener('icegatheringstatechange',change);change()});
+const resp=await fetch(url.replace(/\/$/,'')+'/api/session',{method:'POST',headers:{'Content-Type':'application/json','X-Lesson-Code':code},body:JSON.stringify({sdp:pc.localDescription.sdp})});
+if(!resp.ok)throw Error(resp.status===403?'Неправильный код или доступ запрещён':'Сервер ИИ недоступен: '+resp.status);
+const data=await resp.json();if(!data?.transport?.sdp)throw Error('Сервер не вернул голосовое соединение');
+await pc.setRemoteDescription({type:'answer',sdp:data.transport.sdp});
+active=true;$('pin').value='';$('end').disabled=false;status('🟢 Соединение установлено. Можно говорить!');
+timer=setTimeout(end,10*60*1000);
+}catch(e){clean();status(e.message||'Не удалось подключиться')}
+};
+})();
+</script></body></html>
