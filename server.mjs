@@ -1,11 +1,9 @@
 import express from "express";
-import OpenAI from "openai";
 import crypto from "node:crypto";
 
 const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "90kb" }));
-const client = new OpenAI({ maxRetries: 0 });
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_SITE_ORIGIN = "https://slavakam-source.github.io";
 function canonicalOrigin(value) {
@@ -61,20 +59,36 @@ app.post("/api/session",async(req,res)=>{
  const sdp=req.body?.sdp;
  if(typeof sdp!=="string"||sdp.length<30||sdp.length>90000)return res.status(400).json({error:"invalid_sdp"});
  if(!checkRateLimit(req.ip))return res.status(429).json({error:"session_limit"});
- try{
-  const result=await client.live.create({
-   session:{model:"gpt-live-1.1",instructions:teachingInstructions},
-   transport:{type:"webrtc",sdp}
+ try {
+  const upstream = await fetch("https://api.openai.com/v1/live/sessions",{
+   method:"POST",
+   headers:{
+    "Authorization":"Bearer "+process.env.OPENAI_API_KEY,
+    "Content-Type":"application/json"
+   },
+   body:JSON.stringify({
+    session:{model:"gpt-live-1.1",instructions:teachingInstructions},
+    transport:{type:"webrtc",sdp}
+   }),
+   signal:AbortSignal.timeout(25000)
   });
-  return res.status(201).json(result);
+  if(!upstream.ok){
+   // The OpenAI response body can contain internal details. We do not log it.
+   const status=upstream.status;
+   const category=status===401?"api_auth_failed":status===403?"api_permission_denied":status===429?"api_quota_or_rate_limit":status===400?"api_request_rejected":status===404?"api_model_or_endpoint_unavailable":status>=500?"api_provider_unavailable":"voice_unavailable";
+   console.error("Voice session OpenAI HTTP error",JSON.stringify({http_status:status,category}));
+   return res.status(502).json({error:category,upstream_status:status});
+  }
+  const result=await upstream.json();
+  if(!result?.transport?.sdp){
+   console.error("Voice session response lacks SDP");
+   return res.status(502).json({error:"api_invalid_response"});
+  }
+  return res.status(201).json({session:{id:result.session?.id||null},transport:{type:"webrtc",sdp:result.transport.sdp}});
  }catch(e){
-  const status=Number(e?.status)||0;
-  const code=typeof e?.code==="string"?e.code:"unknown";
-  const type=typeof e?.type==="string"?e.type:"unknown";
-  // Never log the API key, request headers, user audio, or SDP.
-  console.error("Voice session failed",JSON.stringify({http_status:status,error_code:code,error_type:type}));
-  const category=status===401?"api_auth_failed":status===403?"api_permission_denied":status===429?"api_quota_or_rate_limit":status===400?"api_request_rejected":status===404?"api_model_or_endpoint_unavailable":status>=500?"api_provider_unavailable":"voice_unavailable";
-  return res.status(502).json({error:category,upstream_status:status||null});
+  const category=e?.name==="TimeoutError"?"api_timeout":"api_network_error";
+  console.error("Voice session transport error",JSON.stringify({category,name:e?.name||"unknown"}));
+  return res.status(502).json({error:category});
  }
 });
 app.listen(PORT,"0.0.0.0",()=>console.log("Voice lesson server listening"));
